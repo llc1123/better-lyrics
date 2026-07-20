@@ -114,6 +114,20 @@ body {
     margin-top: 1.5rem;
 }
 
+.setting-row__text {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.setting-row__hint {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.6875rem;
+    line-height: 1.35;
+}
+
 #offset-modal-overlay .container:first-of-type {
     margin-top: 0;
 }

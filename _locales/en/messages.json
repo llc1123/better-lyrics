@@ -102,6 +102,14 @@
     "message": "Auto-scroll unsynced lyrics",
     "description": "Auto-scroll unsynced lyrics setting label"
   },
+  "options_display_pipAutoRestore": {
+    "message": "Automatically restore the lyrics mini window",
+    "description": "Setting label for restoring the lyrics Picture-in-Picture window after page load"
+  },
+  "options_display_pipAutoRestoreHint": {
+    "message": "Opens after your first click or key press because the browser requires user interaction",
+    "description": "Explains why automatic Picture-in-Picture waits for the first user interaction"
+  },
   "options_display_shadersPromo": {
     "message": "Show link to Better Lyrics Shaders",
     "description": "Toggle label for the Shaders companion link shown in the lyrics footer"
