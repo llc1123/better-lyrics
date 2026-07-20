@@ -207,6 +207,7 @@ function buildToggle(icon: string, active: boolean, label: string, onToggle: () 
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = `${DOCK_CLASS}__control`;
+  btn.dataset.blyricsPictureInPictureToggle = "true";
   btn.setAttribute("aria-label", label);
   btn.title = label;
   btn.classList.toggle(CONTROL_ACTIVE_CLASS, active);
