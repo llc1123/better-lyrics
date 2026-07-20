@@ -45,6 +45,7 @@ import {
   renderLoader,
   setExtraHeight,
 } from "@modules/ui/dom";
+import { loadSavedOffset } from "@modules/ui/lyricsDock/offset";
 import { getRelativeBounds, langCodesMatch, languageMatchesAny, log } from "@utils";
 
 let disableRichsync = registerThemeSetting("blyrics-disable-richsync", false, true);
@@ -151,7 +152,7 @@ export interface LyricsData {
   lyricWidth: number;
   lyricHeight: number;
   isMusicVideoSynced: boolean;
-  tabSelector: HTMLElement;
+  tabSelector: HTMLElement | null;
   lyricsContainer: HTMLElement;
   hasNonLatin: boolean;
 }
@@ -397,6 +398,7 @@ function injectLyrics(data: LyricSourceResultWithMeta, keepLoaderVisible = false
   cleanup();
 
   let lyricsWrapper = createLyricsWrapper();
+  const hasMainLyricsUi = lyricsWrapper.isConnected;
 
   lyricsWrapper.replaceChildren();
   const lyricsContainer = document.createElement("div");
@@ -585,7 +587,7 @@ function injectLyrics(data: LyricSourceResultWithMeta, keepLoaderVisible = false
   }
   animEngineState.scrollResumeTime = 0;
 
-  const tabSelector = document.getElementsByClassName(TAB_HEADER_CLASS)[1] as HTMLElement;
+  const tabSelector = (document.getElementsByClassName(TAB_HEADER_CLASS)[1] as HTMLElement | undefined) ?? null;
 
   let lyricsData = {
     lines: lines,
@@ -603,25 +605,29 @@ function injectLyrics(data: LyricSourceResultWithMeta, keepLoaderVisible = false
   }
 
   if (lyrics[0].words !== t("lyrics_notFound")) {
-    // Set before addFooter so the dock controls read the current song's lyric data.
+    AppState.currentProviderKey = data.providerKey ?? null;
+    void loadSavedOffset(AppState.lastLoadedVideoId, AppState.currentProviderKey);
     AppState.lyricData = lyricsData;
     const unisonData =
       data.source === "Unison" && "unisonData" in data ? (data as { unisonData: UnisonData }).unisonData : undefined;
-    addFooter(
-      data.source,
-      data.sourceHref,
-      data.song,
-      data.artist,
-      data.album,
-      data.duration,
-      data.providerKey,
-      data.videoId,
-      unisonData,
-      syncType === "none"
-    );
+    if (hasMainLyricsUi) {
+      addFooter(
+        data.source,
+        data.sourceHref,
+        data.song,
+        data.artist,
+        data.album,
+        data.duration,
+        data.providerKey,
+        data.videoId,
+        unisonData,
+        syncType === "none"
+      );
+    }
   } else {
+    AppState.currentProviderKey = null;
     AppState.lyricData = null;
-    addNoLyricsButton(data.song, data.artist, data.album, data.duration, data.videoId);
+    if (hasMainLyricsUi) addNoLyricsButton(data.song, data.artist, data.album, data.duration, data.videoId);
   }
 
   lyricsContainer.dataset.sync = syncType;
@@ -631,8 +637,10 @@ function injectLyrics(data: LyricSourceResultWithMeta, keepLoaderVisible = false
   }
 
   AppState.areLyricsTicking = true;
-  calculateLyricPositions();
-  getResizeObserver().observe(lyricsWrapper);
+  if (hasMainLyricsUi) {
+    calculateLyricPositions();
+    getResizeObserver().observe(lyricsWrapper);
+  }
   if (allZero) {
     log(SYNC_DISABLED_LOG);
   }
@@ -816,10 +824,11 @@ function injectTranslation(lyricElement: HTMLElement, text: string) {
 }
 
 export function calculateLyricPositions() {
+  const lyricsElement = AppState.lyricData?.lyricsContainer;
+  if (!lyricsElement?.isConnected) return;
+
   setExtraHeight();
   if (AppState.lyricData && AppState.areLyricsTicking) {
-    const lyricsElement = document.getElementsByClassName(LYRICS_CLASS)[0] as HTMLElement;
-
     const data = AppState.lyricData;
     data.lyricWidth = lyricsElement.clientWidth;
 

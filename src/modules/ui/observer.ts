@@ -363,19 +363,26 @@ export function initializeLyrics(): void {
       injectSongAttributes(detail.song, detail.artist);
     }
 
+    const tabSelector = document.getElementsByClassName(TAB_HEADER_CLASS)[1] as HTMLElement | undefined;
     if (AppState.lyricInjectionFailed && !AppState.isPictureInPictureOpen) {
-      const tabSelector = document.getElementsByClassName(TAB_HEADER_CLASS)[1];
       if (tabSelector && tabSelector.getAttribute("aria-selected") !== "true") {
         return; // wait to resolve until tab is visible
       }
     }
 
+    if (
+      tabSelector?.getAttribute("aria-selected") === "true" &&
+      AppState.areLyricsLoaded &&
+      !document.getElementById(LYRICS_WRAPPER_ID)
+    ) {
+      AppState.queueLyricInjection = true;
+    }
+
     if (AppState.queueLyricInjection || AppState.lyricInjectionFailed) {
-      const tabSelector = document.getElementsByClassName(TAB_HEADER_CLASS)[1] as HTMLElement;
-      if (tabSelector) {
+      if (tabSelector || AppState.isPictureInPictureOpen) {
         AppState.queueLyricInjection = false;
         AppState.lyricInjectionFailed = false;
-        if (tabSelector.getAttribute("aria-selected") !== "true") {
+        if (!AppState.isPictureInPictureOpen && tabSelector && tabSelector.getAttribute("aria-selected") !== "true") {
           onAutoSwitchEnabled(() => {
             tabSelector.click();
             log(AUTO_SWITCH_ENABLED_LOG);

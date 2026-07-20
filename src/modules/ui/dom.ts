@@ -56,7 +56,6 @@ import { generatePetName } from "@/core/keyIdentity";
 import { byId, deleteVote, type UnisonData, vote } from "../lyrics/providers/unison";
 import { buildControlsSegment, closeSourceMenu } from "./lyricsDock/controls";
 import { parseSvgString, syncTypeColors, syncTypeIcons } from "./lyricsDock/icons";
-import { loadSavedOffset } from "./lyricsDock/offset";
 import { scrollEventHandler } from "./observer";
 import { showReportModal } from "./reportLyrics";
 
@@ -279,7 +278,13 @@ let adStateObserver: MutationObserver | null = null;
  * @returns The lyrics wrapper element
  */
 export function createLyricsWrapper(): HTMLElement {
-  const tabRenderer = document.querySelector(TAB_RENDERER_SELECTOR) as HTMLElement;
+  const tabRenderer = document.querySelector<HTMLElement>(TAB_RENDERER_SELECTOR);
+
+  if (!tabRenderer) {
+    const wrapper = document.createElement("div");
+    wrapper.id = LYRICS_WRAPPER_ID;
+    return wrapper;
+  }
 
   tabRenderer.removeEventListener("scroll", scrollEventHandler);
   tabRenderer.addEventListener("scroll", scrollEventHandler);
@@ -390,9 +395,6 @@ export function addFooter(
   } else {
     footerLink.textContent = source || HOMEPAGE_DOMAIN;
   }
-
-  AppState.currentProviderKey = providerKey ?? null;
-  void loadSavedOffset(AppState.lastLoadedVideoId, AppState.currentProviderKey);
 
   if (AppState.isControlsDockEnabled) {
     mountDock(AppState.controlsDockPosition);
@@ -1543,7 +1545,7 @@ export function cleanup(): void {
   clearUnisonControlsRegistry();
   AppState.currentUnisonData = null;
 
-  getResumeScrollElement().setAttribute("autoscroll-hidden", "true");
+  document.getElementById("autoscroll-resume-button")?.setAttribute("autoscroll-hidden", "true");
 
   const buttonContainer = document.querySelector(".blyrics-no-lyrics-button-container");
   if (buttonContainer) {

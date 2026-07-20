@@ -334,8 +334,6 @@ export function animationEngine(currentTime: number, eventCreationTime: number, 
   }
 
   const tabSelector = lyricData.tabSelector;
-  console.assert(tabSelector != null);
-
   const playerState = document.getElementById("player-page")?.getAttribute("player-ui-state");
   const isPlayerOpen =
     !playerState ||
@@ -343,7 +341,7 @@ export function animationEngine(currentTime: number, eventCreationTime: number, 
     playerState === "FULLSCREEN" ||
     playerState === "MINIPLAYER_IN_PLAYER_PAGE";
   // Don't tick lyrics if they're not visible
-  if (tabSelector.getAttribute("aria-selected") !== "true" || !isPlayerOpen) {
+  if (!tabSelector || tabSelector.getAttribute("aria-selected") !== "true" || !isPlayerOpen) {
     animEngineState.doneFirstInstantScroll = false;
     return;
   }
