@@ -1,6 +1,7 @@
 export interface DocumentPictureInPictureWindowOptions {
   readonly width: number;
   readonly height: number;
+  readonly disallowReturnToOpener?: boolean;
 }
 
 export interface DocumentPictureInPicture<TWindow = Window> {
