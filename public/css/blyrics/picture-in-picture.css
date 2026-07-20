@@ -79,7 +79,7 @@ body {
   transition: opacity 180ms ease;
 }
 
-.blyrics-pip-artwork:hover .blyrics-pip-artwork__controls {
+.blyrics-pip-artwork:hover:not([data-controls-idle]) .blyrics-pip-artwork__controls {
   opacity: 1;
   pointer-events: auto;
 }

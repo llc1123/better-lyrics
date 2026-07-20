@@ -43,6 +43,7 @@ const ACTIVE_LINE_HEIGHT_RATIO = 0.66;
 const MIN_ACTIVE_LINE_FONT_SIZE = 10;
 const FONT_FIT_ITERATIONS = 6;
 const VISIBLE_METADATA_CHECK_INTERVAL = 250;
+const PLAYER_CONTROLS_IDLE_DELAY = 5000;
 
 const PLAYER_CONTROL_IDS: Record<PlayerControlAction, string> = {
   previous: "previous-button",
@@ -156,6 +157,7 @@ function createControlIcon(document: Document, icon: PlayerControlIcon): SVGSVGE
 
 export class PictureInPictureLyricsView {
   private readonly shell: HTMLElement;
+  private readonly artworkContainer: HTMLElement;
   private readonly artwork: HTMLImageElement;
   private readonly playPauseButton: HTMLButtonElement;
   private readonly title: HTMLElement;
@@ -177,6 +179,8 @@ export class PictureInPictureLyricsView {
   private lyricsRefreshFrame: number | null = null;
   private layoutFrame: number | null = null;
   private pendingScrollBehavior: ScrollBehavior = "auto";
+  private controlsIdleTimer: number | null = null;
+  private lastPointerMoveTime = 0;
   private fallbackArtworkUrl = "";
 
   constructor(
@@ -189,8 +193,8 @@ export class PictureInPictureLyricsView {
     this.shell.className = "blyrics-pip-shell";
     this.shell.setAttribute("aria-busy", "true");
 
-    const artworkContainer = pipDocument.createElement("div");
-    artworkContainer.className = "blyrics-pip-artwork";
+    this.artworkContainer = pipDocument.createElement("div");
+    this.artworkContainer.className = "blyrics-pip-artwork";
 
     const artworkPlaceholder = pipDocument.createElement("span");
     artworkPlaceholder.className = "blyrics-pip-artwork__placeholder";
@@ -214,7 +218,7 @@ export class PictureInPictureLyricsView {
     );
     const nextButton = this.createPlayerControlButton("next", getSourceControlLabel(sourceDocument, "next", "Next"));
     artworkControls.append(previousButton, this.playPauseButton, nextButton);
-    artworkContainer.append(artworkPlaceholder, this.artwork, artworkControls);
+    this.artworkContainer.append(artworkPlaceholder, this.artwork, artworkControls);
 
     const content = pipDocument.createElement("section");
     content.className = "blyrics-pip-content";
@@ -235,7 +239,7 @@ export class PictureInPictureLyricsView {
     this.renderStatus(t("picture_in_picture_loading"), true);
 
     content.append(header, this.lyricsViewport);
-    this.shell.append(artworkContainer, content);
+    this.shell.append(this.artworkContainer, content);
     pipDocument.body.replaceChildren(this.shell);
 
     this.lyricsObserver = new MutationObserver(this.handleLyricsMutation);
@@ -244,6 +248,10 @@ export class PictureInPictureLyricsView {
       signal: this.lifecycleController.signal,
     });
     pipWindow.addEventListener("resize", this.handleResize, { signal: this.lifecycleController.signal });
+    pipWindow.addEventListener("pointermove", this.handlePointerMove, {
+      passive: true,
+      signal: this.lifecycleController.signal,
+    });
     pipWindow.addEventListener("pagehide", this.destroy, { once: true });
   }
 
@@ -290,6 +298,25 @@ export class PictureInPictureLyricsView {
     this.refreshLayout();
   };
 
+  private readonly handlePointerMove = (): void => {
+    this.lastPointerMoveTime = this.pipWindow.performance.now();
+    this.artworkContainer.removeAttribute("data-controls-idle");
+    if (this.controlsIdleTimer === null) this.scheduleControlsIdleCheck();
+  };
+
+  private scheduleControlsIdleCheck(): void {
+    const elapsed = this.pipWindow.performance.now() - this.lastPointerMoveTime;
+    const remaining = Math.max(0, PLAYER_CONTROLS_IDLE_DELAY - elapsed);
+    this.controlsIdleTimer = this.pipWindow.setTimeout(() => {
+      this.controlsIdleTimer = null;
+      if (this.pipWindow.performance.now() - this.lastPointerMoveTime < PLAYER_CONTROLS_IDLE_DELAY) {
+        this.scheduleControlsIdleCheck();
+        return;
+      }
+      this.artworkContainer.setAttribute("data-controls-idle", "true");
+    }, remaining);
+  }
+
   private readonly handleLyricsMutation = (): void => {
     if (this.lifecycleController.signal.aborted || this.lyricsRefreshFrame !== null) return;
 
@@ -305,6 +332,7 @@ export class PictureInPictureLyricsView {
     this.lyricsObserver.disconnect();
     if (this.lyricsRefreshFrame !== null) this.pipWindow.cancelAnimationFrame(this.lyricsRefreshFrame);
     if (this.layoutFrame !== null) this.pipWindow.cancelAnimationFrame(this.layoutFrame);
+    if (this.controlsIdleTimer !== null) this.pipWindow.clearTimeout(this.controlsIdleTimer);
   };
 
   private createPlayerControlButton(action: PlayerControlAction, label: string): HTMLButtonElement {
