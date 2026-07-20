@@ -19,7 +19,7 @@ interface LyricsInfo {
   sourceText: string | null;
 }
 
-interface VideoMetadata {
+export interface VideoMetadata {
   /**
    * This is the ID of the next song in the playlist.
    * This probably won't account for reordering that the user does, but should be correct otherwiser
@@ -28,6 +28,8 @@ interface VideoMetadata {
   id: string;
   title: string;
   artist: string;
+  displayTitle: string;
+  displayArtist: string;
   album: string;
   isVideo: boolean;
   durationMs: number;
@@ -41,6 +43,76 @@ const browseIdToVideoIdMap = new Map<string, string>();
 const videoIdToLyricsMap = new Map<string, LyricsInfo>();
 const videoMetaDataMap = new Map<string, VideoMetadata>();
 const videoIdToAlbumMap = new Map<string, string | null>();
+
+interface LocalizedDisplayMetadata {
+  title: string;
+  artistText: string;
+}
+
+function getPlaylistPanelContents(response: NextResponse) {
+  return (
+    response.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer.tabs?.[0]
+      .tabRenderer.content?.musicQueueRenderer.content?.playlistPanelRenderer.contents ??
+    response.continuationContents?.playlistPanelContinuation.contents
+  );
+}
+
+function extractLocalizedArtistText(longBylineText: LongBylineText): string {
+  const runs = longBylineText?.runs ?? [];
+  let artistRunsEnd = runs.findIndex(run => run.text.trim() === "•");
+
+  for (let index = 0; index < runs.length; index++) {
+    const run = runs[index];
+    const browse = run.navigationEndpoint?.browseEndpoint;
+    const pageType = browse?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
+    if (pageType === "MUSIC_PAGE_TYPE_ALBUM" && artistRunsEnd === -1) artistRunsEnd = index;
+  }
+
+  const artistRuns = artistRunsEnd === -1 ? runs : runs.slice(0, artistRunsEnd);
+  return artistRuns
+    .map(run => run.text)
+    .join("")
+    .trim();
+}
+
+function collectLocalizedDisplayMetadata(response: NextResponse): Map<string, LocalizedDisplayMetadata> {
+  const metadata = new Map<string, LocalizedDisplayMetadata>();
+  for (const content of getPlaylistPanelContents(response) ?? []) {
+    const primaryRenderer =
+      content.playlistPanelVideoRenderer ??
+      content.playlistPanelVideoWrapperRenderer?.primaryRenderer.playlistPanelVideoRenderer;
+    if (primaryRenderer) {
+      metadata.set(primaryRenderer.videoId, {
+        title: primaryRenderer.title.runs[0]?.text ?? "",
+        artistText: extractLocalizedArtistText(primaryRenderer.longBylineText),
+      });
+    }
+
+    const counterpartRenderer =
+      content.playlistPanelVideoWrapperRenderer?.counterpart?.[0]?.counterpartRenderer.playlistPanelVideoRenderer;
+    if (counterpartRenderer) {
+      metadata.set(counterpartRenderer.videoId, {
+        title: counterpartRenderer.title.runs[0]?.text ?? "",
+        artistText: extractLocalizedArtistText(counterpartRenderer.longBylineText),
+      });
+    }
+  }
+  return metadata;
+}
+
+function localizedMetadataOrFallback(
+  metadata: Map<string, LocalizedDisplayMetadata>,
+  videoId: string,
+  title: string,
+  artist: string
+): LocalizedDisplayMetadata {
+  return (
+    metadata.get(videoId) ?? {
+      title,
+      artistText: artist,
+    }
+  );
+}
 
 // /**
 //  * ContinuationId -> Last song in the playlist (before the continuation)
@@ -183,9 +255,12 @@ export function setupRequestSniffer(): void {
 
   document.addEventListener("blyrics-send-response", (event: Event) => {
     if (!(event instanceof CustomEvent)) return;
-    let { /** @type string */ url, requestJson, responseJson } = event.detail;
+    let { /** @type string */ url, requestJson, responseJson, localizedResponseJson } = event.detail;
     if (matchesPath(url, "/youtubei/v1/next")) {
       let nextResponse = responseJson as NextResponse;
+      const localizedMetadata = collectLocalizedDisplayMetadata(
+        (localizedResponseJson ?? responseJson) as NextResponse
+      );
       let playlistPanelRendererContents =
         nextResponse.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer
           .tabs?.[0].tabRenderer.content?.musicQueueRenderer.content?.playlistPanelRenderer.contents;
@@ -318,7 +393,19 @@ export function setupRequestSniffer(): void {
           let nextCounterPartVideo = nextPair?.counterpart?.id || nextPrimaryVideo;
 
           let counterpart = videoPair.counterpart;
+          const primaryDisplay = localizedMetadataOrFallback(
+            localizedMetadata,
+            videoPair.primary.id,
+            videoPair.primary.title,
+            videoPair.primary.artist
+          );
           if (counterpart) {
+            const counterpartDisplay = localizedMetadataOrFallback(
+              localizedMetadata,
+              counterpart.id,
+              counterpart.title,
+              counterpart.artist
+            );
             let numSegmentMap: SegmentMap | null = null; // our segment map with `Number` as the type
             let reversedSegmentMap: SegmentMap | null = null;
 
@@ -343,6 +430,8 @@ export function setupRequestSniffer(): void {
 
             videoMetaDataMap.set(videoPair.primary.id, {
               artist: videoPair.primary.artist,
+              displayArtist: primaryDisplay.artistText,
+              displayTitle: primaryDisplay.title,
               nextVideoId: nextPrimaryVideo,
               title: videoPair.primary.title,
               album: videoPair.primary.album,
@@ -357,6 +446,8 @@ export function setupRequestSniffer(): void {
 
             videoMetaDataMap.set(counterpart.id, {
               artist: counterpart.artist,
+              displayArtist: counterpartDisplay.artistText,
+              displayTitle: counterpartDisplay.title,
               isVideo: counterpart.isVideo,
               nextVideoId: nextCounterPartVideo,
               album: counterpart.album,
@@ -373,6 +464,8 @@ export function setupRequestSniffer(): void {
           } else {
             videoMetaDataMap.set(videoPair.primary.id, {
               artist: videoPair.primary.artist,
+              displayArtist: primaryDisplay.artistText,
+              displayTitle: primaryDisplay.title,
               nextVideoId: nextPrimaryVideo,
               title: videoPair.primary.title,
               album: videoPair.primary.album,
