@@ -1,4 +1,12 @@
 {
+  "picture_in_picture_open": {
+    "message": "Open Picture-in-Picture lyrics",
+    "description": "Accessible label for the dock action that opens the floating lyrics window"
+  },
+  "picture_in_picture_loading": {
+    "message": "Loading lyrics…",
+    "description": "Status displayed while the Picture-in-Picture lyrics window initializes"
+  },
   "extensionName": {
     "message": "Better Lyrics (Lyrics for YouTube Music)",
     "description": "The name of the extension"
