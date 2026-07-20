@@ -43,7 +43,7 @@ const ACTIVE_LINE_HEIGHT_RATIO = 0.66;
 const MIN_ACTIVE_LINE_FONT_SIZE = 10;
 const FONT_FIT_ITERATIONS = 6;
 const VISIBLE_METADATA_CHECK_INTERVAL = 250;
-const PLAYER_CONTROLS_IDLE_DELAY = 5000;
+const PLAYER_CONTROLS_IDLE_DELAY = 2000;
 
 const PLAYER_CONTROL_IDS: Record<PlayerControlAction, string> = {
   previous: "previous-button",
