@@ -60,6 +60,7 @@ interface AppStateType {
   isDockOffsetEnabled: boolean;
   dockControlsOrder: string[];
   currentUnisonData: UnisonData | null;
+  isPictureInPictureOpen: boolean;
 }
 
 export const AppState: AppStateType = {
@@ -101,6 +102,7 @@ export const AppState: AppStateType = {
   isDockOffsetEnabled: true,
   dockControlsOrder: [...DOCK_CONTROL_ORDER_DEFAULT],
   currentUnisonData: null,
+  isPictureInPictureOpen: false,
 };
 
 export function reloadLyrics(): void {

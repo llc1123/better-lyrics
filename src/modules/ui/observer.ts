@@ -363,7 +363,7 @@ export function initializeLyrics(): void {
       injectSongAttributes(detail.song, detail.artist);
     }
 
-    if (AppState.lyricInjectionFailed) {
+    if (AppState.lyricInjectionFailed && !AppState.isPictureInPictureOpen) {
       const tabSelector = document.getElementsByClassName(TAB_HEADER_CLASS)[1];
       if (tabSelector && tabSelector.getAttribute("aria-selected") !== "true") {
         return; // wait to resolve until tab is visible

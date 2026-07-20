@@ -9,6 +9,7 @@ import { t } from "@core/i18n";
 import { type LyricsData, processLyrics } from "@modules/lyrics/injectLyrics";
 import { stringSimilarity } from "@modules/lyrics/lyricParseUtils";
 import { registerThemeSetting } from "@modules/settings/themeOptions";
+import { animEngineState } from "@modules/ui/animationEngine";
 import { flushLoader, renderLoader } from "@modules/ui/dom";
 import { log } from "@utils";
 import type { Lyric, LyricSourceResult, ProviderParameters } from "./providers/shared";
@@ -16,7 +17,6 @@ import { getLyrics, newSourceMap, providerPriority } from "./providers/shared";
 import type { YTLyricSourceResult } from "./providers/yt";
 import { getSongAlbum, getSongMetadata, type SegmentMap } from "./requestSniffer/requestSniffer";
 import { clearCache as clearTranslationCache } from "./translation";
-import { animEngineState } from "@modules/ui/animationEngine";
 
 const hideInstrumentalOnly = registerThemeSetting("blyrics-hide-instrumental-only", false, true);
 
@@ -146,8 +146,8 @@ export async function createLyrics(detail: PlayerDetails, signal: AbortSignal): 
     }
 
     const tabSelector = document.getElementsByClassName(TAB_HEADER_CLASS)[1];
-    console.assert(tabSelector != null);
-    if (tabSelector.getAttribute("aria-selected") !== "true") {
+    const canRenderLyrics = tabSelector?.getAttribute("aria-selected") === "true" || AppState.isPictureInPictureOpen;
+    if (!tabSelector || !canRenderLyrics) {
       AppState.areLyricsLoaded = false;
       AppState.areLyricsTicking = false;
       AppState.lyricInjectionFailed = true;

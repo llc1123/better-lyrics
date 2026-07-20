@@ -184,7 +184,7 @@ const startLyricsTick = () => {
 
 /**
  * Stops the lyrics tick interval, clears the timer, and cleans up observers.
- * Called when the page is unloaded or when an error occurs.
+ * Called when the page is hidden for navigation or when an error occurs.
  */
 const stopLyricsTick = () => {
   if (tickLyricsInterval) {
@@ -203,7 +203,33 @@ const stopLyricsTick = () => {
   }
 };
 
-window.addEventListener("unload", stopLyricsTick);
+window.addEventListener("pagehide", stopLyricsTick);
+window.addEventListener("pageshow", event => {
+  if (event.persisted) startLyricsTick();
+});
+
+document.addEventListener("blyrics-player-control", event => {
+  const player = document.getElementById("movie_player");
+  if (!player) return;
+
+  switch (event.detail) {
+    case "previous":
+      if (typeof player.previousVideo === "function") player.previousVideo();
+      break;
+    case "play-pause": {
+      const isPlaying = player.getPlayerStateObject?.().isPlaying === true;
+      if (isPlaying) {
+        player.pauseVideo();
+      } else {
+        player.playVideo();
+      }
+      break;
+    }
+    case "next":
+      if (typeof player.nextVideo === "function") player.nextVideo();
+      break;
+  }
+});
 
 document.addEventListener("blyrics-seek-to", event => {
   const player = document.getElementById("movie_player");
