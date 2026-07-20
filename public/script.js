@@ -169,6 +169,7 @@ const startLyricsTick = () => {
               duration: duration,
               audioTrackData: audioTrackData,
               browserTime: now,
+              isPlaying: isPlaying,
               playing: playing,
               contentRect,
             },

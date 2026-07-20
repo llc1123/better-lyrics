@@ -17,6 +17,7 @@
         "lint": "biome lint --write . && biome format --write .",
         "update-version": "tsx tooling/update-version.ts",
         "typecheck": "npm run generate:locales && tsc --noEmit",
+        "selfcheck:pip": "tsx src/modules/ui/pictureInPicture/capability.selfcheck.ts",
         "knip": "knip --cache",
         "knip:fix": "knip --fix",
         "knip:ci": "knip --no-exit-code --reporter github-actions"

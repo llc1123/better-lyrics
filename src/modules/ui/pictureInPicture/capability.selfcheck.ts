@@ -65,25 +65,18 @@ async function settle(): Promise<void> {
 }
 
 const capabilityApi = new FakeApi([Promise.resolve(new FakeWindow())]);
-const supported = getPictureInPictureCapability({ documentPictureInPicture: capabilityApi }, false);
+const supported = getPictureInPictureCapability({ documentPictureInPicture: capabilityApi });
 assert.equal(
   supported.kind,
   "supported",
   "Given a requestWindow API, When capability is checked, Then it is supported"
 );
 
-const missing = getPictureInPictureCapability({}, false);
+const missing = getPictureInPictureCapability({});
 assert.equal(missing.kind, "missing", "Given no API, When capability is checked, Then it is missing");
 
-const malformed = getPictureInPictureCapability({ documentPictureInPicture: { requestWindow: "invalid" } }, false);
+const malformed = getPictureInPictureCapability({ documentPictureInPicture: { requestWindow: "invalid" } });
 assert.equal(malformed.kind, "malformed", "Given a malformed API, When capability is checked, Then it is malformed");
-
-const alreadyOpen = getPictureInPictureCapability({ documentPictureInPicture: capabilityApi }, true);
-assert.equal(
-  alreadyOpen.kind,
-  "already-open",
-  "Given an active PiP window, When capability is checked, Then it is already open"
-);
 
 const retryWindow = new FakeWindow();
 const retryApi = new FakeApi([Promise.reject(new Error("request rejected")), Promise.resolve(retryWindow)]);

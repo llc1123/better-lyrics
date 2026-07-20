@@ -1,15 +1,15 @@
 import { getPictureInPictureCapability } from "./capability";
-import type { DocumentPictureInPictureWindowOptions, PictureInPictureControllerDependencies } from "./types";
+import type {
+  DocumentPictureInPicture,
+  DocumentPictureInPictureWindowOptions,
+  PictureInPictureControllerDependencies,
+} from "./types";
 
 const REQUEST_OPTIONS = {
   width: 420,
   height: 180,
   disallowReturnToOpener: true,
 } as const satisfies DocumentPictureInPictureWindowOptions;
-
-function assertNever(value: never): never {
-  throw new Error(`Unexpected Picture-in-Picture capability: ${JSON.stringify(value)}`);
-}
 
 export class PictureInPictureController<TWindow> {
   private activeWindow: TWindow | null = null;
@@ -18,18 +18,7 @@ export class PictureInPictureController<TWindow> {
   constructor(private readonly dependencies: PictureInPictureControllerDependencies<TWindow>) {}
 
   isSupported(): boolean {
-    const capability = getPictureInPictureCapability<TWindow>(this.dependencies.host, false);
-
-    switch (capability.kind) {
-      case "supported":
-      case "already-open":
-        return true;
-      case "missing":
-      case "malformed":
-        return false;
-      default:
-        return assertNever(capability);
-    }
+    return getPictureInPictureCapability<TWindow>(this.dependencies.host).kind === "supported";
   }
 
   isOpen(): boolean {
@@ -47,24 +36,11 @@ export class PictureInPictureController<TWindow> {
   }
 
   private open(): void {
-    const capability = getPictureInPictureCapability<TWindow>(this.dependencies.host, this.isOpening);
-
-    switch (capability.kind) {
-      case "supported":
-        this.requestWindow(capability.api);
-        return;
-      case "missing":
-      case "malformed":
-      case "already-open":
-        return;
-      default:
-        return assertNever(capability);
-    }
+    const capability = getPictureInPictureCapability<TWindow>(this.dependencies.host);
+    if (capability.kind === "supported") this.requestWindow(capability.api);
   }
 
-  private requestWindow(api: {
-    requestWindow(options: DocumentPictureInPictureWindowOptions): Promise<TWindow>;
-  }): void {
+  private requestWindow(api: DocumentPictureInPicture<TWindow>): void {
     this.isOpening = true;
 
     let request: Promise<TWindow>;

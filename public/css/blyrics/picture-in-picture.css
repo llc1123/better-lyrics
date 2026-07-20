@@ -101,10 +101,8 @@ body {
     transform 140ms ease;
 }
 
-.blyrics-pip-artwork__control:hover,
-.blyrics-pip-artwork__control:focus-visible {
+.blyrics-pip-artwork__control:hover {
   background: rgb(255 255 255 / 22%);
-  outline: none;
   transform: scale(1.08);
 }
 
@@ -118,8 +116,7 @@ body {
   transform: scale(1.08);
 }
 
-.blyrics-pip-artwork__control--play-pause:hover,
-.blyrics-pip-artwork__control--play-pause:focus-visible {
+.blyrics-pip-artwork__control--play-pause:hover {
   background: #fff;
   transform: scale(1.16);
 }

@@ -21,5 +21,4 @@ export interface PictureInPictureControllerDependencies<TWindow> {
 export type PictureInPictureCapability<TWindow = Window> =
   | { readonly kind: "supported"; readonly api: DocumentPictureInPicture<TWindow> }
   | { readonly kind: "missing" }
-  | { readonly kind: "malformed" }
-  | { readonly kind: "already-open" };
+  | { readonly kind: "malformed" };

@@ -9,10 +9,13 @@ import { t } from "@core/i18n";
 import type { LineData, LyricsData, PartData } from "@modules/lyrics/injectLyrics";
 import { getSongMetadata } from "@modules/lyrics/requestSniffer/requestSniffer";
 
-interface LyricsLineContent {
-  readonly original: string;
+interface SecondaryLyricContent {
   readonly romanization: string | null;
   readonly translation: string | null;
+}
+
+interface LyricsLineContent extends SecondaryLyricContent {
+  readonly original: string;
   readonly parts: LyricPartContent[];
 }
 
@@ -27,6 +30,7 @@ interface LyricPartContent {
 interface DisplayMetadata {
   readonly title: string;
   readonly byline: string;
+  readonly videoId: string | null;
 }
 
 type PlayerControlAction = "previous" | "play-pause" | "next";
@@ -54,8 +58,6 @@ const PLAYER_CONTROL_ICON_PATHS: Record<PlayerControlIcon, string> = {
 };
 
 function getLineContent(line: LineData): LyricsLineContent {
-  const romanizationElement = line.lyricElement.querySelector(`.${ROMANIZED_LYRICS_CLASS}`);
-  const translationElement = line.lyricElement.querySelector(`.${TRANSLATED_LYRICS_CLASS}`);
   const parts = line.parts.filter(isOriginalPart).map(part => ({
     text: part.lyricElement.textContent ?? "",
     time: part.time,
@@ -67,9 +69,17 @@ function getLineContent(line: LineData): LyricsLineContent {
 
   return {
     original: original || "♪",
+    ...getSecondaryContent(line),
+    parts,
+  };
+}
+
+function getSecondaryContent(line: LineData): SecondaryLyricContent {
+  const romanizationElement = line.lyricElement.querySelector(`.${ROMANIZED_LYRICS_CLASS}`);
+  const translationElement = line.lyricElement.querySelector(`.${TRANSLATED_LYRICS_CLASS}`);
+  return {
     romanization: romanizationElement?.textContent?.trim() || null,
     translation: translationElement?.textContent?.trim() || null,
-    parts,
   };
 }
 
@@ -103,10 +113,20 @@ function getVisiblePlayerMetadata(sourceDocument: Document): DisplayMetadata {
   const title = playerBar?.querySelector<HTMLElement>("yt-formatted-string.title, .title.ytmusic-player-bar");
   const byline = playerBar?.querySelector<HTMLElement>("yt-formatted-string.byline, .byline.ytmusic-player-bar");
   const bylineText = byline?.textContent?.trim() ?? "";
+  const titleLink = title?.querySelector<HTMLAnchorElement>('a[href*="watch"]');
+  let videoId: string | null = null;
+  if (titleLink) {
+    try {
+      videoId = new URL(titleLink.href, sourceDocument.location.href).searchParams.get("v");
+    } catch {
+      videoId = null;
+    }
+  }
 
   return {
     title: title?.textContent?.trim() ?? "",
     byline: bylineText,
+    videoId,
   };
 }
 
@@ -139,19 +159,24 @@ export class PictureInPictureLyricsView {
   private readonly artwork: HTMLImageElement;
   private readonly playPauseButton: HTMLButtonElement;
   private readonly title: HTMLElement;
-  private readonly artist: HTMLElement;
+  private readonly byline: HTMLElement;
   private readonly lyricsViewport: HTMLElement;
   private readonly lifecycleController = new AbortController();
+  private readonly lyricsObserver: MutationObserver;
   private artworkController: AbortController | null = null;
   private currentVideoId: string | null = null;
   private currentLyrics: LyricsData | null = null;
-  private currentLineSignature = "";
   private lineElements: HTMLElement[] = [];
   private wordElements: HTMLElement[][] = [];
   private wordTimings: LyricPartContent[][] = [];
+  private wordProgress: number[][] = [];
   private activeLineIndex = -1;
-  private lastLyricsCheck = 0;
+  private isLyricsLoadFinished = false;
   private lastVisibleMetadataCheck = 0;
+  private lastPlayingState: boolean | null = null;
+  private lyricsRefreshFrame: number | null = null;
+  private layoutFrame: number | null = null;
+  private pendingScrollBehavior: ScrollBehavior = "auto";
   private fallbackArtworkUrl = "";
 
   constructor(
@@ -200,9 +225,9 @@ export class PictureInPictureLyricsView {
     this.title = pipDocument.createElement("h1");
     this.title.className = "blyrics-pip-header__title";
 
-    this.artist = pipDocument.createElement("p");
-    this.artist.className = "blyrics-pip-header__artist";
-    header.append(this.title, this.artist);
+    this.byline = pipDocument.createElement("p");
+    this.byline.className = "blyrics-pip-header__artist";
+    header.append(this.title, this.byline);
 
     this.lyricsViewport = pipDocument.createElement("div");
     this.lyricsViewport.className = "blyrics-pip-lyrics";
@@ -213,6 +238,8 @@ export class PictureInPictureLyricsView {
     this.shell.append(artworkContainer, content);
     pipDocument.body.replaceChildren(this.shell);
 
+    this.lyricsObserver = new MutationObserver(this.handleLyricsMutation);
+
     sourceDocument.addEventListener(PLAYER_TIME_EVENT, this.handlePlayerTime, {
       signal: this.lifecycleController.signal,
     });
@@ -221,9 +248,21 @@ export class PictureInPictureLyricsView {
   }
 
   refreshLayout(): void {
-    this.pipWindow.requestAnimationFrame(() => {
+    this.scheduleLayout("auto");
+  }
+
+  private scheduleLayout(behavior: ScrollBehavior): void {
+    if (this.layoutFrame !== null) {
+      if (behavior === "smooth") this.pendingScrollBehavior = behavior;
+      return;
+    }
+
+    this.pendingScrollBehavior = behavior;
+    this.layoutFrame = this.pipWindow.requestAnimationFrame(() => {
+      this.layoutFrame = null;
       this.fitActiveLine();
-      this.scrollToActiveLine("auto");
+      this.scrollToActiveLine(this.pendingScrollBehavior);
+      this.pendingScrollBehavior = "auto";
     });
   }
 
@@ -231,7 +270,7 @@ export class PictureInPictureLyricsView {
     const detail = (event as CustomEvent<PlayerDetails>).detail;
     if (!detail) return;
 
-    this.updatePlayPauseButton(detail.playing);
+    this.updatePlayPauseButton(detail.isPlaying);
 
     if (detail.videoId !== this.currentVideoId) {
       this.showSong(detail);
@@ -242,12 +281,7 @@ export class PictureInPictureLyricsView {
       this.lastVisibleMetadataCheck = now;
       this.refreshVisibleMetadata(detail.videoId);
     }
-    const availableLyrics = AppState.lastLoadedVideoId === detail.videoId ? AppState.lyricData : null;
-    const lyricsChanged = this.currentLyrics !== availableLyrics;
-    if (lyricsChanged || now - this.lastLyricsCheck >= 500) {
-      this.lastLyricsCheck = now;
-      this.refreshLyrics(detail.videoId);
-    }
+    this.syncLyricsState(detail.videoId);
 
     this.updateActiveLine(detail);
   };
@@ -256,14 +290,27 @@ export class PictureInPictureLyricsView {
     this.refreshLayout();
   };
 
+  private readonly handleLyricsMutation = (): void => {
+    if (this.lifecycleController.signal.aborted || this.lyricsRefreshFrame !== null) return;
+
+    this.lyricsRefreshFrame = this.pipWindow.requestAnimationFrame(() => {
+      this.lyricsRefreshFrame = null;
+      if (this.currentVideoId) this.refreshLyrics(this.currentVideoId);
+    });
+  };
+
   private readonly destroy = (): void => {
     this.lifecycleController.abort();
     this.artworkController?.abort();
+    this.lyricsObserver.disconnect();
+    if (this.lyricsRefreshFrame !== null) this.pipWindow.cancelAnimationFrame(this.lyricsRefreshFrame);
+    if (this.layoutFrame !== null) this.pipWindow.cancelAnimationFrame(this.layoutFrame);
   };
 
   private createPlayerControlButton(action: PlayerControlAction, label: string): HTMLButtonElement {
     const button = this.pipWindow.document.createElement("button");
     button.type = "button";
+    button.tabIndex = -1;
     button.className = `blyrics-pip-artwork__control blyrics-pip-artwork__control--${action}`;
     button.setAttribute("aria-label", label);
     button.addEventListener("click", () => this.activatePlayerControl(action));
@@ -289,6 +336,8 @@ export class PictureInPictureLyricsView {
   }
 
   private updatePlayPauseButton(isPlaying: boolean): void {
+    if (this.lastPlayingState === isPlaying) return;
+    this.lastPlayingState = isPlaying;
     this.playPauseButton.toggleAttribute("data-playing", isPlaying);
     this.playPauseButton.setAttribute(
       "aria-label",
@@ -297,27 +346,27 @@ export class PictureInPictureLyricsView {
   }
 
   private showSong(detail: PlayerDetails): void {
+    this.lyricsObserver.disconnect();
     this.currentVideoId = detail.videoId;
     this.currentLyrics = null;
-    this.currentLineSignature = "";
     this.lineElements = [];
     this.wordElements = [];
     this.wordTimings = [];
+    this.wordProgress = [];
     this.activeLineIndex = -1;
-    this.lastVisibleMetadataCheck = 0;
+    this.isLyricsLoadFinished = false;
+    this.lastVisibleMetadataCheck = Date.now();
     this.title.textContent = detail.song;
-    this.artist.textContent = detail.artist;
-    this.refreshVisibleMetadata(detail.videoId);
+    this.byline.textContent = detail.artist;
     this.renderStatus(t("picture_in_picture_loading"), true);
     this.loadArtwork(detail.videoId);
   }
 
-  private refreshVisibleMetadata(videoId: string): DisplayMetadata {
+  private refreshVisibleMetadata(videoId: string): void {
     const metadata = getVisiblePlayerMetadata(this.sourceDocument);
-    if (this.currentVideoId !== videoId) return metadata;
-    if (metadata.title) this.title.textContent = metadata.title;
-    if (metadata.byline) this.artist.textContent = metadata.byline;
-    return metadata;
+    if (this.currentVideoId !== videoId || (metadata.videoId && metadata.videoId !== videoId)) return;
+    if (metadata.title && this.title.textContent !== metadata.title) this.title.textContent = metadata.title;
+    if (metadata.byline && this.byline.textContent !== metadata.byline) this.byline.textContent = metadata.byline;
   }
 
   private loadArtwork(videoId: string): void {
@@ -329,10 +378,9 @@ export class PictureInPictureLyricsView {
 
     void getSongMetadata(videoId, 250, controller.signal).then(metadata => {
       if (controller.signal.aborted || this.currentVideoId !== videoId || !metadata) return;
-      const visibleMetadata = this.refreshVisibleMetadata(videoId);
-      if (!visibleMetadata.title && metadata.displayTitle) this.title.textContent = metadata.displayTitle;
-      const displayArtist = metadata.displayArtist || metadata.artist;
-      if (!visibleMetadata.byline && displayArtist) this.artist.textContent = displayArtist;
+      if (metadata.displayTitle) this.title.textContent = metadata.displayTitle;
+      const displayByline = metadata.displayByline || metadata.artist;
+      if (displayByline) this.byline.textContent = displayByline;
       if (metadata.thumbnail?.url) this.setArtwork(getArtworkUrl(metadata.thumbnail.url));
     });
   }
@@ -348,32 +396,50 @@ export class PictureInPictureLyricsView {
     this.artwork.src = url;
   }
 
+  private syncLyricsState(videoId: string): void {
+    const lyrics = AppState.lastLoadedVideoId === videoId ? AppState.lyricData : null;
+    const isFinished = AppState.lastLoadedVideoId === videoId && AppState.areLyricsLoaded;
+    if (this.currentLyrics === lyrics && this.isLyricsLoadFinished === isFinished) return;
+
+    this.isLyricsLoadFinished = isFinished;
+    this.lyricsObserver.disconnect();
+    if (lyrics) {
+      this.lyricsObserver.observe(lyrics.lyricsContainer, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    }
+    this.refreshLyrics(videoId);
+  }
+
   private refreshLyrics(videoId: string): void {
     const lyrics = AppState.lastLoadedVideoId === videoId ? AppState.lyricData : null;
     if (!lyrics) {
       this.currentLyrics = null;
-      this.currentLineSignature = "";
       this.lineElements = [];
       this.wordElements = [];
       this.wordTimings = [];
+      this.wordProgress = [];
       this.activeLineIndex = -1;
-      const isFinishedWithoutLyrics = AppState.lastLoadedVideoId === videoId && AppState.areLyricsLoaded;
       this.renderStatus(
-        isFinishedWithoutLyrics ? t("lyrics_notFound") : t("picture_in_picture_loading"),
-        !isFinishedWithoutLyrics
+        this.isLyricsLoadFinished ? t("lyrics_notFound") : t("picture_in_picture_loading"),
+        !this.isLyricsLoadFinished
       );
       return;
     }
 
-    const contents = lyrics.lines.map(getLineContent);
-    const signature = JSON.stringify(contents);
-    if (this.currentLyrics === lyrics && this.currentLineSignature === signature) return;
+    if (this.currentLyrics === lyrics && this.lineElements.length === lyrics.lines.length) {
+      if (this.updateSecondaryLyrics(lyrics)) this.refreshLayout();
+      return;
+    }
 
+    const contents = lyrics.lines.map(getLineContent);
     this.currentLyrics = lyrics;
-    this.currentLineSignature = signature;
     this.activeLineIndex = -1;
     this.wordElements = [];
     this.wordTimings = contents.map(content => content.parts);
+    this.wordProgress = contents.map(() => []);
     this.lineElements = contents.map((content, index) => this.createLyricLine(content, index));
     this.lyricsViewport.replaceChildren(...this.lineElements);
     this.shell.setAttribute("aria-busy", "false");
@@ -394,6 +460,7 @@ export class PictureInPictureLyricsView {
       return word;
     });
     this.wordElements[lineIndex] = words;
+    this.wordProgress[lineIndex] = words.map(() => 0);
     if (words.length > 0) {
       original.append(...words);
     } else {
@@ -401,21 +468,47 @@ export class PictureInPictureLyricsView {
     }
     line.appendChild(original);
 
-    if (content.romanization) {
-      const romanization = this.pipWindow.document.createElement("span");
-      romanization.className = "blyrics-pip-lyrics__secondary";
-      romanization.textContent = content.romanization;
-      line.appendChild(romanization);
-    }
-
-    if (content.translation) {
-      const translation = this.pipWindow.document.createElement("span");
-      translation.className = "blyrics-pip-lyrics__secondary";
-      translation.textContent = content.translation;
-      line.appendChild(translation);
-    }
+    this.setSecondaryText(line, "romanization", content.romanization);
+    this.setSecondaryText(line, "translation", content.translation);
 
     return line;
+  }
+
+  private updateSecondaryLyrics(lyrics: LyricsData): boolean {
+    let hasChanged = false;
+    for (let index = 0; index < lyrics.lines.length; index++) {
+      const line = this.lineElements[index];
+      if (!line) continue;
+      const content = getSecondaryContent(lyrics.lines[index]);
+      hasChanged = this.setSecondaryText(line, "romanization", content.romanization) || hasChanged;
+      hasChanged = this.setSecondaryText(line, "translation", content.translation) || hasChanged;
+    }
+    return hasChanged;
+  }
+
+  private setSecondaryText(line: HTMLElement, kind: "romanization" | "translation", text: string | null): boolean {
+    const className = `blyrics-pip-lyrics__secondary--${kind}`;
+    const existing = line.querySelector<HTMLElement>(`.${className}`);
+    if (!text) {
+      if (!existing) return false;
+      existing.remove();
+      return true;
+    }
+    if (existing) {
+      if (existing.textContent === text) return false;
+      existing.textContent = text;
+      return true;
+    }
+
+    const secondary = this.pipWindow.document.createElement("span");
+    secondary.className = `blyrics-pip-lyrics__secondary ${className}`;
+    secondary.textContent = text;
+    if (kind === "romanization") {
+      line.insertBefore(secondary, line.querySelector(".blyrics-pip-lyrics__secondary--translation"));
+    } else {
+      line.appendChild(secondary);
+    }
+    return true;
   }
 
   private renderStatus(message: string, isLoading: boolean): void {
@@ -452,8 +545,7 @@ export class PictureInPictureLyricsView {
         line.classList.toggle("blyrics-pip-lyrics__line--active", index === nextIndex);
         line.classList.toggle("blyrics-pip-lyrics__line--past", index < nextIndex);
       });
-      this.fitActiveLine();
-      this.scrollToActiveLine(isInitialPosition ? "auto" : "smooth");
+      this.scheduleLayout(isInitialPosition ? "auto" : "smooth");
     }
 
     if (lyrics.syncType === "richsync") this.updateWordAnimation(lyricTime);
@@ -491,12 +583,15 @@ export class PictureInPictureLyricsView {
   private updateWordAnimation(lyricTime: number): void {
     const words = this.wordElements[this.activeLineIndex] ?? [];
     const timings = this.wordTimings[this.activeLineIndex] ?? [];
+    const cachedProgress = this.wordProgress[this.activeLineIndex] ?? [];
     for (let index = 0; index < words.length; index++) {
       const timing = timings[index];
       const progress =
         timing.duration > 0
           ? Math.min(1, Math.max(0, (lyricTime - timing.time) / timing.duration))
           : Number(lyricTime >= timing.time);
+      if (cachedProgress[index] === progress) continue;
+      cachedProgress[index] = progress;
       const word = words[index];
       word.style.setProperty("--blyrics-pip-word-progress", String(progress));
     }

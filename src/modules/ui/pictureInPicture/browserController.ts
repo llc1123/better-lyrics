@@ -79,6 +79,16 @@ function armAutoRestore(): void {
   autoRestoreInteractionController = controller;
   const attemptOpen = (event: Event): void => {
     if (!event.isTrusted || hasAttemptedAutoRestore) return;
+    if (
+      event instanceof KeyboardEvent &&
+      (event.key === "Escape" ||
+        event.key === "Alt" ||
+        event.key === "Control" ||
+        event.key === "Meta" ||
+        event.key === "Shift")
+    ) {
+      return;
+    }
     hasAttemptedAutoRestore = true;
     disarmAutoRestore();
     const target = event.target;

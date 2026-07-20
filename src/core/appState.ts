@@ -14,6 +14,7 @@ export interface PlayerDetails {
   duration: string;
   audioTrackData: any;
   browserTime: number;
+  isPlaying: boolean;
   playing: boolean;
   contentRect: {
     width: number;

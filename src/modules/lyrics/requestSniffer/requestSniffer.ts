@@ -19,7 +19,7 @@ interface LyricsInfo {
   sourceText: string | null;
 }
 
-export interface VideoMetadata {
+interface VideoMetadata {
   /**
    * This is the ID of the next song in the playlist.
    * This probably won't account for reordering that the user does, but should be correct otherwiser
@@ -29,7 +29,7 @@ export interface VideoMetadata {
   title: string;
   artist: string;
   displayTitle: string;
-  displayArtist: string;
+  displayByline: string;
   album: string;
   isVideo: boolean;
   durationMs: number;
@@ -46,30 +46,19 @@ const videoIdToAlbumMap = new Map<string, string | null>();
 
 interface LocalizedDisplayMetadata {
   title: string;
-  artistText: string;
+  byline: string;
 }
 
 function getPlaylistPanelContents(response: NextResponse) {
   return (
-    response.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer.tabs?.[0]
+    response.contents?.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer.tabs?.[0]
       .tabRenderer.content?.musicQueueRenderer.content?.playlistPanelRenderer.contents ??
     response.continuationContents?.playlistPanelContinuation.contents
   );
 }
 
-function extractLocalizedArtistText(longBylineText: LongBylineText): string {
-  const runs = longBylineText?.runs ?? [];
-  let artistRunsEnd = runs.findIndex(run => run.text.trim() === "•");
-
-  for (let index = 0; index < runs.length; index++) {
-    const run = runs[index];
-    const browse = run.navigationEndpoint?.browseEndpoint;
-    const pageType = browse?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType;
-    if (pageType === "MUSIC_PAGE_TYPE_ALBUM" && artistRunsEnd === -1) artistRunsEnd = index;
-  }
-
-  const artistRuns = artistRunsEnd === -1 ? runs : runs.slice(0, artistRunsEnd);
-  return artistRuns
+function getBylineText(longBylineText: LongBylineText): string {
+  return (longBylineText?.runs ?? [])
     .map(run => run.text)
     .join("")
     .trim();
@@ -84,7 +73,7 @@ function collectLocalizedDisplayMetadata(response: NextResponse): Map<string, Lo
     if (primaryRenderer) {
       metadata.set(primaryRenderer.videoId, {
         title: primaryRenderer.title.runs[0]?.text ?? "",
-        artistText: extractLocalizedArtistText(primaryRenderer.longBylineText),
+        byline: getBylineText(primaryRenderer.longBylineText),
       });
     }
 
@@ -93,7 +82,7 @@ function collectLocalizedDisplayMetadata(response: NextResponse): Map<string, Lo
     if (counterpartRenderer) {
       metadata.set(counterpartRenderer.videoId, {
         title: counterpartRenderer.title.runs[0]?.text ?? "",
-        artistText: extractLocalizedArtistText(counterpartRenderer.longBylineText),
+        byline: getBylineText(counterpartRenderer.longBylineText),
       });
     }
   }
@@ -109,7 +98,7 @@ function localizedMetadataOrFallback(
   return (
     metadata.get(videoId) ?? {
       title,
-      artistText: artist,
+      byline: artist,
     }
   );
 }
@@ -261,12 +250,7 @@ export function setupRequestSniffer(): void {
       const localizedMetadata = collectLocalizedDisplayMetadata(
         (localizedResponseJson ?? responseJson) as NextResponse
       );
-      let playlistPanelRendererContents =
-        nextResponse.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer
-          .tabs?.[0].tabRenderer.content?.musicQueueRenderer.content?.playlistPanelRenderer.contents;
-      if (!playlistPanelRendererContents) {
-        playlistPanelRendererContents = nextResponse.continuationContents?.playlistPanelContinuation.contents;
-      }
+      let playlistPanelRendererContents = getPlaylistPanelContents(nextResponse);
 
       if (!playlistPanelRendererContents) {
         playlistPanelRendererContents =
@@ -430,7 +414,7 @@ export function setupRequestSniffer(): void {
 
             videoMetaDataMap.set(videoPair.primary.id, {
               artist: videoPair.primary.artist,
-              displayArtist: primaryDisplay.artistText,
+              displayByline: primaryDisplay.byline,
               displayTitle: primaryDisplay.title,
               nextVideoId: nextPrimaryVideo,
               title: videoPair.primary.title,
@@ -446,7 +430,7 @@ export function setupRequestSniffer(): void {
 
             videoMetaDataMap.set(counterpart.id, {
               artist: counterpart.artist,
-              displayArtist: counterpartDisplay.artistText,
+              displayByline: counterpartDisplay.byline,
               displayTitle: counterpartDisplay.title,
               isVideo: counterpart.isVideo,
               nextVideoId: nextCounterPartVideo,
@@ -464,7 +448,7 @@ export function setupRequestSniffer(): void {
           } else {
             videoMetaDataMap.set(videoPair.primary.id, {
               artist: videoPair.primary.artist,
-              displayArtist: primaryDisplay.artistText,
+              displayByline: primaryDisplay.byline,
               displayTitle: primaryDisplay.title,
               nextVideoId: nextPrimaryVideo,
               title: videoPair.primary.title,
@@ -483,7 +467,7 @@ export function setupRequestSniffer(): void {
       }
 
       let continuation =
-        nextResponse.contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer
+        nextResponse.contents?.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer
           .tabs[0].tabRenderer.content?.musicQueueRenderer.content?.playlistPanelRenderer.continuations?.[0]
           .nextRadioContinuationData.continuation;
       if (continuation) {
